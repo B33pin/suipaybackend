@@ -1,0 +1,7 @@
+export const PackageId = "0x321db2919bc455307244c76ef2a0834377272c2ef47c44384326a5912179a031";
+export const WalletRegistry = "0x9eeb325e632b887d4a71468785f745919b623f80cf8aef86dbdd0b9e48cb80a0";
+export const ProductRegistry = "0xb2d56bb7a77c5ad1cd13aa2bb4979f88ee23df07e12b358d6b90dd639fdfb04c";
+export const UpgradeCap = "0xb8e768b604d0ef411287daf37bf37ba747306aa27fa6b47c21f1538a0e5cca88";
+
+
+ 

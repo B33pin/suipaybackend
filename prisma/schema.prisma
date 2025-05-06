@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String             @id @unique
+  wallet           String             @unique
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  password         String
+  email            String
+  EphemeralDeposit EphemeralDeposit[]
+}
+
+model EphemeralDeposit {
+  id         String    @id @default(uuid())
+  address    String    @unique
+  userId     String?
+  merchantId String?
+  privateKey String
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  status     String    @default("PENDING")
+  amount     String?
+  merchant   Merchant? @relation(fields: [merchantId], references: [id])
+  user       User?     @relation(fields: [userId], references: [id])
+  ownerType  String
+
+  @@index([merchantId])
+  @@index([address])
+  @@map("ephemeral_deposits")
+}
+
+model Merchant {
+  id               String             @id @unique
+  businessName     String
+  email            String
+  password         String
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  wallet           String             @unique
+  EphemeralDeposit EphemeralDeposit[]
+  products         Product[]
+  apiWebHooks      APIWebHooks[]
+
+  @@map("merchants")
+}
+
+enum ProductType {
+  ONETIME
+  SUBSCRIPTION
+}
+
+model Product {
+  id                  String        @id @unique
+  name                String
+  price               BigInt
+  productType         ProductType
+  recurringPeriod     Int
+  subscribersRegistry String
+  attachedHooks       APIWebHooks[]
+  Merchant            Merchant?     @relation(fields: [merchantId], references: [id])
+  merchantId          String?
+
+  @@map("products")
+}
+
+model APIWebHooks {
+  id         String    @id @default(uuid())
+  url        String
+  secret     String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  Merchant   Merchant? @relation(fields: [merchantId], references: [id])
+  merchantId String?
+  Product    Product?  @relation(fields: [productId], references: [id])
+  productId  String?
+
+  @@map("api_webhooks")
+}
