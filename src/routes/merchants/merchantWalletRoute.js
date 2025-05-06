@@ -420,8 +420,7 @@ async function handleDeposit(address, amount, ownerId, ownerType, ephKeypair) {
     testTx.setSender(address);
     const [testSplit] = testTx.splitCoins(testTx.gas, [testTx.pure.u64(1000)]);
     
-    // Different moveCall target based on owner type
-    if (ownerType === 'MERCHANT') {
+    
       testTx.moveCall({
         target: `${PackageId}::suipay::depositToSuiPayWallet`,
         arguments: [
@@ -430,17 +429,7 @@ async function handleDeposit(address, amount, ownerId, ownerType, ephKeypair) {
           testTx.object("0x6"),
         ],
       });
-    } else {
-      // For users, you might have a different moveCall target or logic
-      testTx.moveCall({
-        target: `${PackageId}::suipay::depositToUserWallet`,
-        arguments: [
-          testSplit,
-          testTx.object(owner.wallet),
-          testTx.object("0x6"),
-        ],
-      });
-    }
+    
     
     const txBytes = await testTx.build({ client: sui });
     const dryRunResult = await sui.dryRunTransactionBlock({
@@ -505,8 +494,7 @@ async function handleDeposit(address, amount, ownerId, ownerType, ephKeypair) {
       // Send minimumBalance directly to owner.id
       finalTx.transferObjects([coinForOwner], finalTx.pure.address(owner.id));
       
-      // Deposit the rest to appropriate wallet based on owner type
-      if (ownerType === 'MERCHANT') {
+     
         finalTx.moveCall({
           target: `${PackageId}::suipay::depositToSuiPayWallet`,
           arguments: [
@@ -515,23 +503,14 @@ async function handleDeposit(address, amount, ownerId, ownerType, ephKeypair) {
             finalTx.object("0x6"),
           ],
         });
-      } else {
-        finalTx.moveCall({
-          target: `${PackageId}::suipay::depositToUserWallet`,
-          arguments: [
-            coinForContract,
-            finalTx.object(owner.wallet),
-            finalTx.object("0x6"),
-          ],
-        });
-      }
+      
     } else {
       console.log(`${ownerType} balance (${ownerBalanceSUI.toFixed(9)} SUI) is above threshold. Proceeding with normal deposit.`);
       // Normal flow - split from gas to deposit the full amount
       const [splitCoin] = finalTx.splitCoins(finalTx.gas, [finalTx.pure.u64(depositAmount)]);
       
       // Deposit to appropriate wallet based on owner type
-      if (ownerType === 'MERCHANT') {
+     
         finalTx.moveCall({
           target: `${PackageId}::suipay::depositToSuiPayWallet`,
           arguments: [
@@ -540,16 +519,7 @@ async function handleDeposit(address, amount, ownerId, ownerType, ephKeypair) {
             finalTx.object("0x6"),
           ],
         });
-      } else {
-        finalTx.moveCall({
-          target: `${PackageId}::suipay::depositToUserWallet`,
-          arguments: [
-            splitCoin,
-            finalTx.object(owner.wallet),
-            finalTx.object("0x6"),
-          ],
-        });
-      }
+      
     }
     
     // Set gas budget and transfer remaining gas

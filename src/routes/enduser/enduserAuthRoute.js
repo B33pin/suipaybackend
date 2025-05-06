@@ -69,7 +69,7 @@ router.post('/signUp', async(req, res) => {
     } catch (err) {
       let errorMessage;
       let statusCode;
-      
+      console.log(err);
       if(err.message.includes("function: 1") && err.message.includes("createSuiPayWallet")) {
         errorMessage = "Wallet already exists";
         statusCode = 400;
