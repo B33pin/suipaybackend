@@ -3,9 +3,39 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import prisma from '../../prismaClient.js';
 import  {sui, serverKeyPair } from '../../utils/suiClient.js';
-import { PackageId, WalletRegistry } from '../../utils/packageUtils.js';
+import { PackageId, ProductRegistry, WalletRegistry } from '../../utils/packageUtils.js';
 import { Transaction } from '@mysten/sui/transactions';
 import authMiddleware from '../../middleware/authMiddleware.js';
+import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
+
+async function buildTxData (){
+  const ed25519 = Ed25519Keypair.deriveKeypair(
+    "absent faint roof fog smile protect hybrid saddle admit volume rug grit",
+    "m/44'/784'/0'/0'/0'" 
+  );
+  
+  const tx = new Transaction();
+  tx.moveCall(
+  { target: `${PackageId}::product::createOneTimeProduct`,
+    arguments: [
+      tx.pure.string("Test"),
+      tx.pure.u64(20),
+      tx.object(`${ProductRegistry}`),
+    ],}
+  );
+  tx.setSender(
+    ed25519.getPublicKey().toSuiAddress()
+  );
+
+  const data = await tx.build(BuildT);
+ const signedData = await ed25519.signTransaction(data);
+
+ console.log("signedData", signedData);
+
+
+ 
+};
+
 
 const router = express.Router()
 

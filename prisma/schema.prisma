@@ -15,6 +15,8 @@ model User {
   password         String
   email            String
   EphemeralDeposit EphemeralDeposit[]
+  PaymentIntent    PaymentIntent[]
+  Receipt          Receipt[]
 
   @@map("users")
 }
@@ -59,15 +61,17 @@ enum ProductType {
 }
 
 model Product {
-  id                  String        @id @unique
+  id                  String          @id @unique
   name                String
   price               BigInt
   productType         ProductType
   recurringPeriod     Int
   subscribersRegistry String
   attachedHooks       APIWebHooks[]
-  Merchant            Merchant?     @relation(fields: [merchantId], references: [id])
+  Merchant            Merchant?       @relation(fields: [merchantId], references: [id])
   merchantId          String?
+  PaymentIntent       PaymentIntent[]
+  Receipt             Receipt[]
 
   @@map("products")
 }
@@ -84,4 +88,65 @@ model APIWebHooks {
   productId  String?
 
   @@map("api_webhooks")
+}
+
+// PaymentIntent model with nextPaymentDue field
+model PaymentIntent {
+  id                 String              @id @unique
+  userId             String
+  productId          String
+  lastPaidOn         DateTime
+  nextPaymentDue     DateTime // Added field for next scheduled payment
+  ref_id             String
+  status             PaymentIntentStatus @default(ACTIVE)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  user               User                @relation(fields: [userId], references: [id])
+  product            Product             @relation(fields: [productId], references: [id])
+  receipts           Receipt[]
+  transactionDigests TransactionDigest[] // Relation to the digests table
+
+  @@unique([productId, userId])
+  @@index([userId])
+  @@index([productId])
+  @@index([status])
+  @@index([nextPaymentDue]) // Added index on nextPaymentDue for efficient queries
+  @@map("payment_intents")
+}
+
+// Table for transaction digests
+model TransactionDigest {
+  id              String        @id @default(uuid())
+  digest          String // The transaction digest/hash
+  paymentIntentId String // Foreign key to payment intent
+  createdAt       DateTime      @default(now())
+  paymentIntent   PaymentIntent @relation(fields: [paymentIntentId], references: [id])
+
+  @@index([paymentIntentId])
+  @@map("transaction_digests")
+}
+
+enum PaymentIntentStatus {
+  ACTIVE
+  FAILED
+}
+
+// Receipts model (unchanged)
+model Receipt {
+  id            String         @id @default(uuid())
+  productId     String
+  ref_id        String
+  owner         String // User's wallet address
+  amount        BigInt
+  intentId      String? // Optional link to a payment intent
+  createdAt     DateTime       @default(now())
+  paymentIntent PaymentIntent? @relation(fields: [intentId], references: [id])
+  product       Product        @relation(fields: [productId], references: [id])
+  user          User           @relation(fields: [userId], references: [id])
+  userId        String // Connect receipts to users
+
+  @@index([productId])
+  @@index([userId])
+  @@index([intentId])
+  @@map("receipts")
 }

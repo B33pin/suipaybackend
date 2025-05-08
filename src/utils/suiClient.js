@@ -8,5 +8,6 @@ export const serverKeyPair =  Ed25519Keypair.fromSecretKey(
     process.env.SUI_SECRET_KEY
 );
 
+console.log('SUI_SERVER_KEY:', serverKeyPair.toSuiAddress());
 
 

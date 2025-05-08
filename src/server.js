@@ -7,6 +7,8 @@ import productRoutes from './routes/merchants/productRoute.js';
 import webhookRoutes from './routes/merchants/webhookRoute.js';
 import prisma from './prismaClient.js';
 import userAuthRoutes from './routes/enduser/enduserAuthRoute.js';
+import linkGenerationRoutes from './routes/operations/linkGeneration.js';
+import subsccriptionRoutes from './routes/enduser/subscriptionRoute.js';
 
 // Create Express app with WebSocket support
 const app = express();
@@ -29,6 +31,8 @@ app.use('/api/wallet', merchantWalletRoutes);
 app.use('/api/product', productRoutes);
 app.use('/api/webhook',webhookRoutes );
 app.use('/api/user',userAuthRoutes);
+app.use('/api/link', linkGenerationRoutes);
+app.use('/api', subsccriptionRoutes);
 
 
 // Basic health check endpoint

@@ -52,6 +52,7 @@ router.ws('/userDepositAddress', (ws, req, next) => {
 
 async function handleDepositWebSocket(ws, req, ownerType) {
   try {
+    
     const ownerId = req.id;
     
     // Send initial connection message
@@ -652,20 +653,26 @@ router.get('/deposit-status/:address', authMiddleware, async(req, res) => {
 });
 
 // Balance endpoint with support for both merchant and user
-router.get('/balance', authMiddleware, async (req, res) => {
+router.get('/balance', async (req, res) => {
   try {
     // Determine if this is a merchant or user request based on the request's auth context
-    // This assumes your authMiddleware sets a type property or you have a way to distinguish
-    const ownerType = req.userType || 'MERCHANT'; // Default to merchant if not specified
+    const ownerType = req.query.userType || 'MERCHANT'; 
+    const ownerId = req.query.id;
+    
+    console.log(`Fetching balance for ${ownerType} with ID: ${ownerId}`);
+    
+    if (!ownerId) {
+      return res.status(400).json({ error: 'Missing ID parameter' });
+    }
     
     let owner;
     if (ownerType === 'MERCHANT') {
       owner = await prisma.merchant.findUnique({
-        where: { id: req.id }
+        where: { id: ownerId }
       });
     } else {
       owner = await prisma.user.findUnique({
-        where: { id: req.id }
+        where: { id: ownerId }
       });
     }
     
@@ -674,33 +681,44 @@ router.get('/balance', authMiddleware, async (req, res) => {
     }
     
     const ownerBalance = await sui.getBalance({
-      owner: req.id,
+      owner: ownerId,
       coinType: '0x2::sui::SUI'
     });
     
     const txn = await sui.getObject({
       id: owner.wallet,
-      // fetch the object content field
-      options: { showContent: true, },
+      options: { showContent: true },
     });
-
-    // For SuiPay wallet balance (this might differ between merchants and users)
-    const balance = await sui.getDynamicFields(
-      {
-        parentId: "0xfff962ad3c010a8de473df444e1b9a9a44ab84c5ae16e65bfedf63f8be846cd0",
-      }
-    );
     
-    balance.data.map(async (coin) => {
+    // For SuiPay wallet balance
+    const balance = await sui.getDynamicFields({
+      parentId: txn.data.content.fields.wallet.fields.id.id,
+    });
+    
+    // Process all dynamic fields and wait for all promises to complete
+    let walletBalance = 0;
+    const balancePromises = balance.data.map(async (coin) => {
       const finalBalance = await sui.getObject({
         id: coin.objectId,
-        options: { showContent: true, },
+        options: { showContent: true },
       });
-      console.log("Final Balance: ", finalBalance.data.content.fields);
+      
+      if (finalBalance.data.content.fields.name === "0000000000000000000000000000000000000000000000000000000000000002::sui::SUI") {
+        return parseInt(finalBalance.data.content.fields.value);
+      }
+      return 0;
     });
     
+    // Wait for all promises to resolve
+    const balanceResults = await Promise.all(balancePromises);
+    
+    // Sum up the results
+    walletBalance = balanceResults.reduce((sum, value) => sum + value, 0);
+    
     res.json({
-      balance: parseInt(ownerBalance.totalBalance) / MIST_TO_SUI
+      balance: (parseInt(ownerBalance.totalBalance) + walletBalance) / MIST_TO_SUI,
+      walletBalance: walletBalance / MIST_TO_SUI,
+      accountBalance: parseInt(ownerBalance.totalBalance) / MIST_TO_SUI,
     });
   } catch (error) {
     console.error('Error fetching balance:', error);
