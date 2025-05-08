@@ -1,5 +1,5 @@
-export const PackageId = "0x5193093e79a7dc65cfb1d03ae98d64deaccdc92c196156e5869707b350fbd47d";
-export const WalletRegistry = "0xc13eea4d7e5ae0346954370bc86ec6a3a3f4a8efe86cae6f57a5714ecd3ebfcb";
-export const ProductRegistry = "0xd1e3c9986430e1e76021eec5e1c1d29cd9b04ea860820051b12b810b79464158";
-export const UpgradeCap = "0xc56957e62f570bb3b8964190f000632526e6276ade236791dacf983764760624";
-export const IndividualActiveSubscriptionRegistry = "0x23edba9154989bbda3d1f996f96b5095cce6f6008a78111e74e2e6e5659fd1c6";
+export const PackageId = "0xeded876c9da9b13d4b7e0a2bdc39c6d43d065af30fcbfd378ea217b7e66b2921";
+export const WalletRegistry = "0xa02b12ef52db7a9711531b0b49a77c1d55a6c1f258ab640d27593088366ce3dd";
+export const ProductRegistry = "0xbf4bd78527f75ef51eb9d8f7315fb34463a8190315032a7b9b5e8f2ffda6673f";
+export const UpgradeCap = "0xbd5138245be16b1cbd06b3c1b36fe51e209f417ed833674121d242aab60a4792";
+export const IndividualActiveSubscriptionRegistry = "0x92ea6b045c52e6e047157a1a1dd145ad78d1016c9a3b5e900e4efeea9057a4a3";

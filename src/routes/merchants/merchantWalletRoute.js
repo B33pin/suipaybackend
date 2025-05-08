@@ -794,7 +794,7 @@ router.get('/transactions', authMiddleware, async (req, res) => {
     // Apply pagination
     const paginatedHistory = history.slice(skip, skip + limit);
     
-    // Format transactions for response
+    // Format transactions for response based on the Move struct definition
     const formattedTransactions = paginatedHistory.map(transaction => {
       const fields = transaction.fields;
       
@@ -806,14 +806,10 @@ router.get('/transactions', authMiddleware, async (req, res) => {
         amount: amountMist.toString(),
         amountSui: amountSui.toFixed(9),
         coin: fields.coin,
-        memo: fields.memo || '',
         party: fields.party,
         timestamp: fields.timestamp,
-        transactionType: fields.transactionType ? {
-          type: fields.transactionType.type,
-          variant: fields.transactionType.variant,
-          fields: fields.transactionType.fields || {}
-        } : null
+        memo: fields.memo || '',
+        incoming: fields.incomming // Note: Using the field name as provided in the Move struct
       };
     });
     
