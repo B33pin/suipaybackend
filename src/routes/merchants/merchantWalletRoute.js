@@ -735,10 +735,11 @@ router.get('/balance', async (req, res) => {
 
 router.get('/transactions', authMiddleware, async (req, res) => {
   try {
+    console.log('Fetching transactions...');
     // Determine if this is a merchant or user request based on the request's auth context
     const ownerType = req.query.userType || 'MERCHANT'; 
     const ownerId = req.query.id;
-    
+    console.log(`Fetching transactions for ${ownerType} with ID: ${ownerId}`);
     // Get pagination parameters if provided
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
