@@ -21,6 +21,12 @@ const MIST_TO_SUI = 1000000000; // 1 Billion MIST = 1 SUI
 // Merchant deposit WebSocket endpoint
 router.ws('/merchantDepositAddress', (ws, req, next) => {
   // Apply merchant auth middleware for WebSocket
+
+  const token = req.query.token;
+  if(token) {
+  req.headers.authorization = `Bearer ${token}`;}
+
+
   authMiddleware(req, {
     status: (statusCode) => ({
       json: (data) => {
@@ -36,6 +42,9 @@ router.ws('/merchantDepositAddress', (ws, req, next) => {
 
 // User deposit WebSocket endpoint
 router.ws('/userDepositAddress', (ws, req, next) => {
+  const token = req.query.token;
+  if(token) {
+  req.headers.authorization = `Bearer ${token}`;}
   // Apply user auth middleware for WebSocket
   authMiddleware(req, {
     status: (statusCode) => ({
