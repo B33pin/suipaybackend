@@ -785,7 +785,14 @@ router.get('/transactions', authMiddleware, async (req, res) => {
     }
     
     // Extract transaction history
-    const history = txn.data.content.fields.history;
+    let history = txn.data.content.fields.history;
+    
+    // Sort history by timestamp in descending order (newest first)
+    history.sort((a, b) => {
+      const timestampA = parseInt(a.fields.timestamp);
+      const timestampB = parseInt(b.fields.timestamp);
+      return timestampB - timestampA; // Descending order
+    });
     
     // Calculate total count for pagination
     const totalCount = history.length;
