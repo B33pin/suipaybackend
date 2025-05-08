@@ -100,10 +100,7 @@ async function handleDepositWebSocket(ws, req, ownerType) {
       // Use existing active deposit address
       depositAddress = existingDeposit.address;
       expiresAt = existingDeposit.expiresAt;
-      
-      // Recreate keypair from stored private key
-      const privateKeyBuffer = Buffer.from(existingDeposit.privateKey, 'base64');
-      ephKeypair = Ed25519Keypair.fromSecretKey(privateKeyBuffer);
+      ephKeypair = Ed25519Keypair.fromSecretKey(existingDeposit.privateKey);
       
       // Send existing address info
       ws.send(JSON.stringify({
@@ -732,6 +729,111 @@ router.get('/balance', async (req, res) => {
   } catch (error) {
     console.error('Error fetching balance:', error);
     res.status(500).json({ error: 'Failed to fetch balance' });
+  }
+});
+
+
+router.get('/transactions', authMiddleware, async (req, res) => {
+  try {
+    // Determine if this is a merchant or user request based on the request's auth context
+    const ownerType = req.query.userType || 'MERCHANT'; 
+    const ownerId = req.query.id;
+    
+    // Get pagination parameters if provided
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+    
+    console.log(`Fetching transactions for ${ownerType} with ID: ${ownerId}`);
+    
+    if (!ownerId) {
+      return res.status(400).json({ error: 'Missing ID parameter' });
+    }
+    
+    let owner;
+    if (ownerType === 'MERCHANT') {
+      owner = await prisma.merchant.findUnique({
+        where: { id: ownerId }
+      });
+    } else {
+      owner = await prisma.user.findUnique({
+        where: { id: ownerId }
+      });
+    }
+    
+    if (!owner) {
+      return res.status(404).json({ error: `${ownerType} not found` });
+    }
+    
+    // Get wallet object with content
+    const txn = await sui.getObject({
+      id: owner.wallet,
+      options: { showContent: true },
+    });
+    
+    // Check if wallet and history exist
+    if (!txn.data?.content?.fields?.history) {
+      return res.json({ 
+        transactions: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          pages: 0
+        }
+      });
+    }
+    
+    // Extract transaction history
+    const history = txn.data.content.fields.history;
+    
+    // Calculate total count for pagination
+    const totalCount = history.length;
+    const totalPages = Math.ceil(totalCount / limit);
+    
+    // Apply pagination
+    const paginatedHistory = history.slice(skip, skip + limit);
+    
+    // Format transactions for response
+    const formattedTransactions = paginatedHistory.map(transaction => {
+      const fields = transaction.fields;
+      
+      // Convert MIST to SUI for amount
+      const amountMist = fields.amount ? parseInt(fields.amount) : 0;
+      const amountSui = amountMist / MIST_TO_SUI;
+      
+      return {
+        amount: amountMist.toString(),
+        amountSui: amountSui.toFixed(9),
+        coin: fields.coin,
+        memo: fields.memo || '',
+        party: fields.party,
+        timestamp: fields.timestamp,
+        transactionType: fields.transactionType ? {
+          type: fields.transactionType.type,
+          variant: fields.transactionType.variant,
+          fields: fields.transactionType.fields || {}
+        } : null
+      };
+    });
+    
+    // Return transactions with pagination info
+    return res.json({
+      transactions: formattedTransactions,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        pages: totalPages
+      }
+    });
+      
+  } catch (err) {
+    console.error("Error fetching transaction history:", err);
+    return res.status(500).json({
+      error: "Error fetching transaction history",
+      message: err.message || String(err)
+    });
   }
 });
 

@@ -591,5 +591,4 @@ router.get('/my-subscriptions', authMiddleware, async (req, res) => {
   }
 });
 
-
 export default router;

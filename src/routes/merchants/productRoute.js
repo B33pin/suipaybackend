@@ -145,7 +145,7 @@ router.get('/products', authMiddleware, async(req, res) => {
   });
 
   // GET product details by ID with merchant information
-router.get('/:id', authMiddleware, async(req, res) => {
+router.get('/:id', async(req, res) => {
   try {
     // Get the product ID from the request parameters
     const { id } = req.params;
