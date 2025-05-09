@@ -3,6 +3,9 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken'
 import authMiddleware from '../../middleware/authMiddleware.js';
 import prisma from '../../prismaClient.js';
+import https from 'https';
+import http from 'http';
+import { URL } from 'url';
 
 const router = express.Router();
 
@@ -356,4 +359,133 @@ router.post('/api-webhooks/:id/regenerate-secret', authMiddleware, async(req, re
   }
 });
 
+
+// Function to encrypt payload with webhook secret
+const encryptPayload = (payload, secret) => {
+  try {
+    // Generate a random IV (Initialization Vector)
+    const iv = crypto.randomBytes(16);
+    
+    // Create a key from the secret
+    const key = crypto.createHash('sha256').update(secret).digest();
+    
+    // Create a cipher
+    const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+    
+    // Encrypt the payload
+    const data = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    let encrypted = cipher.update(data, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    
+    // Return both the encrypted data and the IV (needed for decryption)
+    return {
+      iv: iv.toString('hex'),
+      data: encrypted
+    };
+  } catch (err) {
+    console.error('Error encrypting payload:', err);
+    throw new Error(`Failed to encrypt payload: ${err.message}`);
+  }
+};
+
+
+// True fire-and-forget webhook notification function
+const notifyWebHook = async (webhookIds, body) => {
+  // Start the webhook process but don't wait for it
+  setImmediate(() => {
+    processWebhooks(webhookIds, body)
+      .catch(err => console.error('Background webhook processing error:', err));
+  });
+  
+  // Return immediately - don't wait for webhook delivery
+  return { success: true, message: 'Webhook delivery started' };
+};
+
+// Process webhooks in the background without blocking the main application
+async function processWebhooks(webhookIds, body) {
+  if (!Array.isArray(webhookIds) || webhookIds.length === 0) {
+    console.log('No webhook IDs provided, skipping notification');
+    return;
+  }
+
+  // Fire all webhooks in parallel without waiting for responses
+  webhookIds.forEach(async (webhookId) => {
+    try {
+      // Quick query to get webhook info
+      const webhook = await prisma.aPIWebHooks.findUnique({
+        where: { id: webhookId },
+        select: { url: true, secret: true } // Only select what we need
+      }).catch(err => {
+        console.error(`Error fetching webhook ${webhookId}:`, err);
+        return null;
+      });
+
+      if (!webhook) return; // Skip silently
+
+      // Decrypt and encrypt payload (wrapped in try/catch)
+      let encryptedPayload;
+      try {
+        const secret = decryptSecret(webhook.secret);
+        if (!secret) return; // Skip silently
+        encryptedPayload = encryptPayload(body, secret);
+      } catch (e) {
+        console.error(`Encryption error for webhook ${webhookId}:`, e);
+        return; // Skip silently
+      }
+
+      // Send webhook without waiting for response
+      fireWebhook(webhook.url, encryptedPayload, webhookId);
+    } catch (err) {
+      // Just log the error and continue - never block or throw
+      console.error(`Error processing webhook ${webhookId}:`, err);
+    }
+  });
+}
+
+// Fire a single webhook without waiting for response
+function fireWebhook(url, payload, webhookId) {
+  try {
+    const urlObj = new URL(url);
+    const protocol = urlObj.protocol === 'https:' ? https : http;
+    
+    const options = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || (urlObj.protocol === 'https:' ? 443 : 80),
+      path: `${urlObj.pathname}${urlObj.search}`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      timeout: 10000 // 10 second timeout, but we don't wait for it anyway
+    };
+    
+    const req = protocol.request(options);
+    
+    // Set up minimal event handlers
+    req.on('error', (err) => {
+      console.error(`Webhook delivery error for ${webhookId}:`, err.message);
+    });
+    
+    // Optional: Log success in background (but don't capture full response)
+    req.on('response', (res) => {
+      // Just log status code and move on
+      const success = res.statusCode >= 200 && res.statusCode < 300;
+      if (!success) {
+        console.error(`Webhook ${webhookId} failed with status ${res.statusCode}`);
+      }
+      
+      // Consume response data so the socket can be released
+      res.resume();
+    });
+    
+    // Send the data and complete request
+    req.write(JSON.stringify(payload));
+    req.end();
+  } catch (e) {
+    console.error(`Error sending webhook ${webhookId}:`, e);
+    // Silently continue - fire and forget
+  }
+}
+
 export default router;
+export { notifyWebHook };
