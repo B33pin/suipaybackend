@@ -171,15 +171,6 @@ router.get('/:id', async(req, res) => {
         message: "No product found with the provided ID"
       });
     }
-
-    // Check if the authenticated user is the owner of this product
-    if (product.merchantId !== req.id) {
-      return res.status(403).send({
-        error: "Access denied",
-        message: "You don't have permission to access this product"
-      });
-    }
-
     // Format the response (convert BigInt to string for JSON)
     const formattedProduct = {
       id: product.id,
