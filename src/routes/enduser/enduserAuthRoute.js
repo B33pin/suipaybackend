@@ -55,7 +55,7 @@ router.post('/signUp', async(req, res) => {
       const token = jwt.sign({ 
         id: user.id,
         type: 'USER'
-      }, process.env.JWT_SECRET, { expiresIn: '24h' });
+      }, process.env.JWT_SECRET, { expiresIn: '30d' });//need to implement refresh token later.
  
       res.status(200).send({
         accessToken: token,
@@ -106,7 +106,7 @@ router.post('/login', async (req, res) => {
       const token = jwt.sign({ 
         id: user.id,
         type: 'USER'  // Explicitly indicate this is a user token
-      }, process.env.JWT_SECRET, { expiresIn: '24h' });
+      }, process.env.JWT_SECRET, { expiresIn: '30d' });
   
       res.status(200).send({
         accessToken: token,

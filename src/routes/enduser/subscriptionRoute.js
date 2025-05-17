@@ -6,6 +6,7 @@ import { Transaction } from '@mysten/sui/transactions';
 import schedule from 'node-schedule';
 import { IndividualActiveSubscriptionRegistry, PackageId, ProductRegistry, WalletRegistry } from '../../utils/packageUtils.js';
 import { notifyWebHook } from '../merchants/webhookRoute.js';
+import { bcs } from '@mysten/sui/bcs';
 
 const router = express.Router();
 
@@ -25,10 +26,10 @@ async function notifyProductWebhooks(productId, eventData) {
       // Always set currency to MIST
       eventData.currency = "MIST";
       
-      console.log(`Sending webhook notifications for product ${productId}:`, eventData);
+      
       return await notifyWebHook(webhookIds, eventData);
     } else {
-      console.log(`No webhooks found for product ${productId}`);
+      
       return { success: true, results: [] };
     }
   } catch (error) {
@@ -40,7 +41,7 @@ async function notifyProductWebhooks(productId, eventData) {
 // Initialize jobs for existing active payment intents when server starts
 async function initializeScheduledJobs() {
   try {
-    console.log('Initializing scheduled subscription payments...');
+    
     const activePaymentIntents = await prisma.paymentIntent.findMany({
       where: { status: 'ACTIVE' },
       include: { product: true }
@@ -50,7 +51,7 @@ async function initializeScheduledJobs() {
       schedulePaymentJob(intent.id, intent.nextPaymentDue);
     }
     
-    console.log(`Scheduled ${activePaymentIntents.length} recurring payments`);
+    
   } catch (error) {
     console.error('Error initializing scheduled jobs:', error);
   }
@@ -69,7 +70,7 @@ async function handleUnsubscribe(paymentIntentId, shouldNotifyWebhook = true, re
     });
     
     if (!paymentIntent) {
-      console.log(`Payment intent ${paymentIntentId} not found or already deleted, skipping unsubscribe`);
+      
       return { success: false, reason: 'Payment intent not found' };
     }
 
@@ -150,7 +151,7 @@ async function handleUnsubscribe(paymentIntentId, shouldNotifyWebhook = true, re
         scheduledJobs.delete(paymentIntentId);
       }
       
-      console.log(`Payment intent ${paymentIntentId} cleanup completed successfully`);
+      
       
       return { 
         success: true, 
@@ -182,13 +183,13 @@ async function schedulePaymentJob(paymentIntentId, scheduledTime) {
     });
     
     if (!paymentIntent) {
-      console.log(`Payment intent ${paymentIntentId} no longer exists, not scheduling job`);
+      
       return { success: false, reason: 'Payment intent not found' };
     }
     
     // Create a Date object for scheduling
     const scheduledDate = new Date(scheduledTime);
-    console.log(`Scheduling payment for ${paymentIntentId} at ${scheduledDate}`);
+    
     
     // Schedule the job for the exact date
     const job = schedule.scheduleJob(scheduledDate, async function() {
@@ -199,19 +200,19 @@ async function schedulePaymentJob(paymentIntentId, scheduledTime) {
         });
         
         if (!intent || intent.status !== 'ACTIVE') {
-          console.log(`Payment intent ${paymentIntentId} is no longer active or exists, skipping scheduled payment`);
+          
           scheduledJobs.delete(paymentIntentId);
           return;
         }
         
-        console.log(`Processing scheduled payment for intent ${paymentIntentId}`);
+        
         const result = await processRenewal(paymentIntentId);
         
         if (result.success && result.nextPaymentDue) {
           // Schedule the next payment
           schedulePaymentJob(paymentIntentId, result.nextPaymentDue);
         } else {
-          console.log(`Payment processing failed for intent ${paymentIntentId}, not scheduling next payment`);
+          
         }
       } catch (error) {
         console.error(`Error processing scheduled payment ${paymentIntentId}:`, error);
@@ -260,6 +261,125 @@ async function schedulePaymentJob(paymentIntentId, scheduledTime) {
   }
 }
 
+async function doesDigestExist(digest) {
+  const existingDigest = await prisma.transactionDigest.findFirst({
+    where: { digest }
+  });
+  
+  return existingDigest !== null;
+}
+
+
+async function extractProductIdFromTransactionBytes(bytes) {
+  try {
+    // Deserialize the transaction bytes
+    const txBlock = Transaction.from(bytes);
+    
+    // Get the transactions from the block
+    const transactions = txBlock.blockData.transactions;
+    
+    // Find the payment-related transaction (assuming it's a MoveCall)
+    const paymentCall = transactions.find(tx => 
+      tx.kind === 'MoveCall' && 
+      tx.target.includes('::payment::')
+    );
+    
+    if (!paymentCall) {
+      throw new Error('No payment call found in transaction');
+    }
+    
+    // Extract the product ID from the arguments
+    const productIdArg = paymentCall.arguments[0]; // Assuming product ID is the first argument
+    
+    
+    let productId;
+    
+    if (productIdArg.kind === 'Input') {
+      const inputIndex = productIdArg.index;
+      let inputValue;
+      
+      // Try to get the input value
+      if (productIdArg.value && typeof productIdArg.value === 'object') {
+        inputValue = productIdArg.value;
+      } else if (txBlock.blockData.inputs && txBlock.blockData.inputs[inputIndex]) {
+        inputValue = txBlock.blockData.inputs[inputIndex].value;
+      } else {
+        throw new Error('Could not find input value');
+      }
+      
+      // Navigate the complex object structure to get the actual objectId
+      if (inputValue.Object && inputValue.Object.Shared && inputValue.Object.Shared.objectId) {
+        productId = inputValue.Object.Shared.objectId;
+      } else if (inputValue.objectId) {
+        productId = inputValue.objectId;
+      } else {
+        // Try to find objectId recursively in the object
+        const findObjectId = (obj) => {
+          if (!obj || typeof obj !== 'object') return null;
+          if (obj.objectId) return obj.objectId;
+          
+          for (const key in obj) {
+            if (obj[key] && typeof obj[key] === 'object') {
+              const found = findObjectId(obj[key]);
+              if (found) return found;
+            }
+          }
+          return null;
+        };
+        
+        productId = findObjectId(inputValue);
+        
+        if (!productId) {
+          console.error('Complex input value structure:', JSON.stringify(inputValue));
+          throw new Error('Could not find objectId in input value');
+        }
+      }
+    } else if (productIdArg.kind === 'Pure') {
+      productId = bcs.de(productIdArg.value);
+    } else if (productIdArg.kind === 'Object') {
+      productId = productIdArg.value;
+    }
+    
+    if (!productId) {
+      throw new Error('Could not extract product ID from transaction');
+    }
+    
+    // Ensure we're returning a string, not an object
+    if (typeof productId === 'object') {
+      
+      if (productId.objectId) {
+        productId = productId.objectId;
+      } else {
+        throw new Error('Product ID extracted is an object without objectId property');
+      }
+    }
+    
+    
+    return productId;
+  } catch (error) {
+    console.error('Error extracting product ID:', error);
+    throw error;
+  }
+}
+
+async function hasActiveSubscription(userId, productId) {
+  try {
+    const existingSubscription = await prisma.paymentIntent.findFirst({
+      where: {
+        userId,
+        productId,
+        status: 'ACTIVE'
+      }
+    });
+    
+    return existingSubscription !== null;
+  } catch (error) {
+    console.error("Error checking for active subscription:", error);
+    throw error;
+  }
+}
+
+
 // Process a payment renewal
 async function processRenewal(paymentIntentId) {
   try {
@@ -273,7 +393,7 @@ async function processRenewal(paymentIntentId) {
     });
     
     if (!intent || intent.status !== 'ACTIVE') {
-      console.log(`Payment intent ${paymentIntentId} is no longer active`);
+      
       return { success: false, reason: 'Payment intent not active' };
     }
 
@@ -404,6 +524,7 @@ initializeScheduledJobs();
 
 // The payment processing route
 router.post('/pay', authMiddleware, async (req, res) => {
+    
   try {
     const { bytes, signature } = req.body;
     if (!bytes || !signature) {
@@ -411,6 +532,35 @@ router.post('/pay', authMiddleware, async (req, res) => {
         error: "Missing required field",
         message: "Transaction block and signature are required"
       });
+    }
+    const productIdCheck =await extractProductIdFromTransactionBytes(bytes);
+   
+    const productCheck = await prisma.product.findUnique({
+      where: { id: productIdCheck }
+    });
+    
+    if (!productCheck) {
+      return res.status(404).send({
+        error: "Product not found",
+        message: "The product doesn't exist in the database"
+      });
+    }
+    
+    // If it's a subscription product, check if user already has an active subscription
+    // before executing the blockchain transaction
+    if (productCheck.productType === 'SUBSCRIPTION') {
+      const userId = req.id; // User ID from auth middleware
+      
+      // Check for existing active subscription
+      const subscriptionExists = await hasActiveSubscription(userId, productIdCheck);
+      
+      if (subscriptionExists) {
+        return res.status(409).send({
+          error: "Subscription already exists",
+          message: "You already have an active subscription for this product",
+          productIdCheck
+        });
+      }
     }
     
     // Execute the transaction
@@ -423,6 +573,15 @@ router.post('/pay', authMiddleware, async (req, res) => {
     });
     
     const digest = transResult.digest;
+    const digestExists = await doesDigestExist(digest);
+    if (digestExists) {
+      return res.status(409).send({
+        error: "Duplicate transaction",
+        message: "This transaction has already been processed",
+        digest
+      });
+    }
+
     
     // Query Sui events to get payment events
     const eventsResult = await sui.queryEvents({
@@ -435,7 +594,7 @@ router.post('/pay', authMiddleware, async (req, res) => {
         message: "No events found in transaction"
       });
     }
-console.log(eventsResult.data);
+    
     // Get the PaymentReceiptEvent which exists for both one-time and subscription payments
     const paymentReceiptEvent = eventsResult.data.find(event => 
       event.type.includes('::payment::PaymentReceiptEvent')
