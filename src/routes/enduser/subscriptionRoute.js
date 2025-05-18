@@ -775,6 +775,8 @@ router.post('/unsubscribe', authMiddleware, async (req, res) => {
         showEvents: true,
       },
     });
+
+    console.log("Transaction result:", transResult.digest);
     
     const digest = transResult.digest;
     
