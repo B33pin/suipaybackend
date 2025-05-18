@@ -7,11 +7,53 @@ import schedule from 'node-schedule';
 import { IndividualActiveSubscriptionRegistry, PackageId, ProductRegistry, WalletRegistry } from '../../utils/packageUtils.js';
 import { notifyWebHook } from '../merchants/webhookRoute.js';
 import { bcs } from '@mysten/sui/bcs';
+import { setTimeout } from 'timers/promises';
 
 const router = express.Router();
 
 // Map to store scheduled jobs (paymentIntentId -> job)
 const scheduledJobs = new Map();
+
+// Helper function to query events with retry and exponential backoff
+async function queryEventsWithRetry(digest, maxRetries = 5, initialDelay = 500) {
+  let retries = 0;
+  let delay = initialDelay;
+  
+  while (retries < maxRetries) {
+    try {
+      // Try to query events
+      const eventsResult = await sui.queryEvents({
+        query: { Transaction: digest },
+      });
+      
+      // If successful, return the result
+      return eventsResult;
+    } catch (error) {
+      // If we hit the specific error about transaction not found
+      if (error.message?.includes('Could not find the referenced transaction') || 
+          error.code === -32602) {
+        
+        // Increment retry counter
+        retries++;
+        
+        if (retries >= maxRetries) {
+          throw error; // Max retries reached, propagate the error
+        }
+        
+        console.log(`Transaction ${digest} not yet indexed, retrying in ${delay}ms (attempt ${retries}/${maxRetries})...`);
+        
+        // Wait before retrying
+        await setTimeout(delay);
+        
+        // Exponential backoff: double the delay for next retry
+        delay *= 2;
+      } else {
+        // If it's a different error, don't retry, just throw
+        throw error;
+      }
+    }
+  }
+}
 
 // Helper function to find and notify webhooks for a product
 async function notifyProductWebhooks(productId, eventData) {
@@ -47,8 +89,24 @@ async function initializeScheduledJobs() {
       include: { product: true }
     });
     
+    const now = new Date();
+    
     for (const intent of activePaymentIntents) {
-      schedulePaymentJob(intent.id, intent.nextPaymentDue);
+      const nextPaymentDue = new Date(intent.nextPaymentDue);
+      
+      // Check if the payment is already past due
+      if (nextPaymentDue < now) {
+        console.log(`Payment intent ${intent.id} is past due. Processing immediately...`);
+        try {
+          // Process the payment immediately
+          await processRenewal(intent.id);
+        } catch (error) {
+          console.error(`Error processing past due payment ${intent.id}:`, error);
+        }
+      } else {
+        // Schedule future payments as normal
+        schedulePaymentJob(intent.id, intent.nextPaymentDue);
+      }
     }
     
     
@@ -103,9 +161,7 @@ async function handleUnsubscribe(paymentIntentId, shouldNotifyWebhook = true, re
         });
         
         // Verify if the blockchain operation was successful
-        const eventsResult = await sui.queryEvents({
-          query: { Transaction: result.digest },
-        });
+        const eventsResult = await queryEventsWithRetry(result.digest);
         
         const paymentIntentDeleteEvent = eventsResult.data.find(event => 
           event.type.includes('::payment::PaymentIntentDeleteEvent')
@@ -423,9 +479,7 @@ async function processRenewal(paymentIntentId) {
     });
     
     // Check for payment receipt event to confirm success
-    const eventsResult = await sui.queryEvents({
-      query: { Transaction: result.digest },
-    });
+    const eventsResult = await queryEventsWithRetry(result.digest);
     
     const paymentReceiptEvent = eventsResult.data.find(event => 
       event.type.includes('::payment::PaymentReceiptEvent')
@@ -584,9 +638,7 @@ router.post('/pay', authMiddleware, async (req, res) => {
 
     
     // Query Sui events to get payment events
-    const eventsResult = await sui.queryEvents({
-      query: { Transaction: digest },
-    });
+    const eventsResult = await queryEventsWithRetry(digest);
 
     if (!eventsResult.data || eventsResult.data.length === 0) {
       return res.status(400).send({
@@ -767,9 +819,7 @@ router.post('/unsubscribe', authMiddleware, async (req, res) => {
     const digest = transResult.digest;
     
     // Check for PaymentIntentDeleteEvent and take actions as needed
-    const eventsResult = await sui.queryEvents({
-      query: { Transaction: digest },
-    });
+    const eventsResult = await queryEventsWithRetry(digest);
     const paymentIntentDeleteEvent = eventsResult.data.find(event => 
       event.type.includes('::payment::PaymentIntentDeleteEvent')
     );
