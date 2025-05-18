@@ -1,3 +1,4 @@
+
 import express from 'express';
 import prisma from '../../prismaClient.js';
 import authMiddleware from '../../middleware/authMiddleware.js';
@@ -7,53 +8,12 @@ import schedule from 'node-schedule';
 import { IndividualActiveSubscriptionRegistry, PackageId, ProductRegistry, WalletRegistry } from '../../utils/packageUtils.js';
 import { notifyWebHook } from '../merchants/webhookRoute.js';
 import { bcs } from '@mysten/sui/bcs';
-import { setTimeout } from 'timers/promises';
+import { queryEventsWithRetry } from '../../utils/suiUtils.js';
 
 const router = express.Router();
 
 // Map to store scheduled jobs (paymentIntentId -> job)
 const scheduledJobs = new Map();
-
-// Helper function to query events with retry and exponential backoff
-async function queryEventsWithRetry(digest, maxRetries = 5, initialDelay = 500) {
-  let retries = 0;
-  let delay = initialDelay;
-  
-  while (retries < maxRetries) {
-    try {
-      // Try to query events
-      const eventsResult = await sui.queryEvents({
-        query: { Transaction: digest },
-      });
-      
-      // If successful, return the result
-      return eventsResult;
-    } catch (error) {
-      // If we hit the specific error about transaction not found
-      if (error.message?.includes('Could not find the referenced transaction') || 
-          error.code === -32602) {
-        
-        // Increment retry counter
-        retries++;
-        
-        if (retries >= maxRetries) {
-          throw error; // Max retries reached, propagate the error
-        }
-        
-        console.log(`Transaction ${digest} not yet indexed, retrying in ${delay}ms (attempt ${retries}/${maxRetries})...`);
-        
-        // Wait before retrying
-        await setTimeout(delay);
-        
-        // Exponential backoff: double the delay for next retry
-        delay *= 2;
-      } else {
-        // If it's a different error, don't retry, just throw
-        throw error;
-      }
-    }
-  }
-}
 
 // Helper function to find and notify webhooks for a product
 async function notifyProductWebhooks(productId, eventData) {

@@ -7,6 +7,7 @@ import { PackageId, ProductRegistry, WalletRegistry } from '../../utils/packageU
 import { Transaction } from '@mysten/sui/transactions';
 import authMiddleware from '../../middleware/authMiddleware.js';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
+import { queryEventsWithRetry } from '../../utils/suiUtils.js';
 
 async function buildTxData (){
   const ed25519 = Ed25519Keypair.deriveKeypair(
@@ -53,9 +54,8 @@ router.post('/signUp', async(req, res) => {
         signer: serverKeyPair,
         transaction: tx,
       });
-      const eventsResult = await sui.queryEvents({
-        query: { Transaction: result.digest },
-      });
+      const eventsResult = await queryEventsWithRetry(result.digest
+      );
       const walletEvent = eventsResult.data.find(event => 
         event.type.includes('::suipay::WalletCreationEvent')
       );

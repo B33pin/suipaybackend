@@ -2,6 +2,8 @@ import express from 'express'
 import prisma from '../../prismaClient.js';
 import  {sui} from '../../utils/suiClient.js';
 import authMiddleware from '../../middleware/authMiddleware.js';
+import { queryEventsWithRetry } from '../../utils/suiUtils.js';
+
 
 const router = express.Router()
 
@@ -31,9 +33,7 @@ router.post('/createProduct', authMiddleware, async(req, res) => {
       });
       const digest = transResult.digest;
       // Query Sui events to get product creation event
-      const eventsResult = await sui.queryEvents({
-        query: { Transaction: digest },
-      });
+      const eventsResult = await queryEventsWithRetry(digest);
       // Find the product creation event
       const walletEvent = eventsResult.data.find(event => 
         event.type.includes('::product::ProductCreationEvent')

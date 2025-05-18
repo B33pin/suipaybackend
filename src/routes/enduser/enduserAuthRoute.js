@@ -6,7 +6,7 @@ import { sui, serverKeyPair } from '../../utils/suiClient.js';
 import { PackageId, WalletRegistry } from '../../utils/packageUtils.js';
 import { Transaction } from '@mysten/sui/transactions';
 import authMiddleware from '../../middleware/authMiddleware.js';
-
+import { queryEventsWithRetry } from '../../utils/suiUtils.js';
 const router = express.Router();
 
 router.post('/signUp', async(req, res) => {
@@ -26,9 +26,7 @@ router.post('/signUp', async(req, res) => {
         transaction: tx,
       });
       
-      const eventsResult = await sui.queryEvents({
-        query: { Transaction: result.digest },
-      });
+      const eventsResult =await queryEventsWithRetry(result.digest);
       
       // Use the same wallet creation event type as merchants
       const walletEvent = eventsResult.data.find(event => 
