@@ -9,6 +9,7 @@ import prisma from './prismaClient.js';
 import userAuthRoutes from './routes/enduser/enduserAuthRoute.js';
 import linkGenerationRoutes from './routes/operations/linkGeneration.js';
 import subsccriptionRoutes from './routes/enduser/subscriptionRoute.js';
+import axios from 'axios';
 
 // Create Express app with WebSocket support
 const app = express();
@@ -34,10 +35,48 @@ app.use('/api/user',userAuthRoutes);
 app.use('/api/link', linkGenerationRoutes);
 app.use('/api', subsccriptionRoutes);
 
-
 // Basic health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).send({ status: 'ok' });
+});
+
+app.get('/api/price',async (req, res) => {
+  try {
+    // Make the request to CoinMarketCap API
+    const response = await axios.get('https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest', {
+      headers: {
+        'X-CMC_PRO_API_KEY': process.env.CMC_API_KEY,
+      },
+      params: {
+        'symbol': 'SUI'
+      }
+    });
+    
+    // Extract the relevant data
+    const suiData = response.data.data.SUI;
+    const price = suiData.quote.USD.price;
+    const percentChange24h = suiData.quote.USD.percent_change_24h;
+    const marketCap = suiData.quote.USD.market_cap;
+    const volume24h = suiData.quote.USD.volume_24h;
+    const lastUpdated = suiData.quote.USD.last_updated;
+    
+    // Send back a simplified response
+    res.json({
+      symbol: 'SUI',
+      name: suiData.name,
+      price: price,
+      percent_change_24h: percentChange24h,
+      market_cap: marketCap,
+      volume_24h: volume24h,
+      last_updated: lastUpdated
+    });
+  } catch (error) {
+    console.error('Error fetching SUI price:', error.response ? error.response.data : error.message);
+    res.status(500).json({ 
+      error: 'Failed to fetch SUI price',
+      message: error.response ? error.response.data.status.error_message : error.message
+    });
+  }
 });
 
 // Clean up expired deposits on server start
