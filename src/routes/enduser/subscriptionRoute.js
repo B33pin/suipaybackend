@@ -1,4 +1,3 @@
-
 import express from 'express';
 import prisma from '../../prismaClient.js';
 import authMiddleware from '../../middleware/authMiddleware.js';
@@ -145,7 +144,8 @@ async function handleUnsubscribe(paymentIntentId, shouldNotifyWebhook = true, re
         amount: paymentIntent.product.price.toString(),
         paidOn: paymentIntent.lastPaidOn.toISOString(), // Use the stored lastPaidOn date
         userId: paymentIntent.userId,
-        userWallet: paymentIntent.user.wallet
+        userWallet: paymentIntent.user.wallet,
+        nextPaymentDue: null // Include nextPaymentDue as null for unsubscribe events
       });
     }
     
@@ -249,7 +249,8 @@ async function schedulePaymentJob(paymentIntentId, scheduledTime) {
               amount: paymentIntent.product.price.toString(),
               paidOn: paymentIntent.lastPaidOn.toISOString(), // Use the stored lastPaidOn date
               userId: paymentIntent.userId,
-              userWallet: paymentIntent.user.wallet
+              userWallet: paymentIntent.user.wallet,
+              nextPaymentDue: null // Include nextPaymentDue as null for failed payments
             });
             
             // Then handle unsubscribe (which will also notify with unsubscribed event)
@@ -491,7 +492,8 @@ async function processRenewal(paymentIntentId) {
       receiptId: receipt.id,
       paidOn: lastPaidOn.toISOString(),
       userId: intent.userId,
-      userWallet: intent.user.wallet
+      userWallet: intent.user.wallet,
+      nextPaymentDue: nextPaymentDue.toISOString() // Include nextPaymentDue in webhook data
     });
     
     return { 
@@ -519,7 +521,8 @@ async function processRenewal(paymentIntentId) {
           amount: paymentIntent.product.price.toString(),
           paidOn: paymentIntent.lastPaidOn.toISOString(), // Use the stored lastPaidOn date
           userId: paymentIntent.userId,
-          userWallet: paymentIntent.user.wallet
+          userWallet: paymentIntent.user.wallet,
+          nextPaymentDue: null // Include nextPaymentDue as null for failed payments
         });
         
         // Then handle unsubscribe (includes database cleanup and unsubscribe notification)
@@ -536,6 +539,105 @@ async function processRenewal(paymentIntentId) {
 // Call initialization on server start
 initializeScheduledJobs();
 
+
+// Endpoint to send test webhook data
+router.post('/send-test-webhook', authMiddleware, async (req, res) => {
+  try {
+    const { productId, event, amount, ref_id, userId, userWallet } = req.body;
+    
+    if (!productId) {
+      return res.status(400).send({
+        error: "Missing required field",
+        message: "Product ID is required"
+      });
+    }
+    
+    // Find the product in database
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      include: { Merchant: true }
+    });
+    
+    if (!product) {
+      return res.status(404).send({
+        error: "Product not found",
+        message: "The product doesn't exist in the database"
+      });
+    }
+    
+    // Get user information - either from request params or auth middleware
+    let userData = {};
+    if (userId && userWallet) {
+      userData = {
+        id: userId,
+        wallet: userWallet
+      };
+    } else {
+      // Get the current user from auth middleware
+      const currentUserId = req.id;
+      const user = await prisma.user.findUnique({
+        where: { id: currentUserId }
+      });
+      
+      if (!user) {
+        return res.status(404).send({
+          error: "User not found",
+          message: "User not found"
+        });
+      }
+      userData = user;
+    }
+    
+    // Generate UUID-format receipt ID
+    function generateUUID() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    }
+    
+    // Default values
+    const webhookEvent = event || "payment_success";
+    const webhookAmount = amount || product.price.toString();
+    const webhookRefId = ref_id || `ZAPADA`;
+    const receiptId = generateUUID();
+    
+    // Create timestamp and next payment due time (exactly 1 minute later)
+    const paidOn = new Date();
+    const nextPaymentDue = new Date(paidOn.getTime() + 60000); // 1 minute later
+    
+    // Prepare test webhook data that exactly matches the format
+    const webhookData = {
+      productId,
+      ref_id: webhookRefId,
+      event: webhookEvent,
+      amount: webhookAmount,
+      receiptId: webhookEvent === "payment_success" ? receiptId : undefined,
+      paidOn: paidOn.toISOString(),
+      userId: userData.id,
+      userWallet: userData.wallet,
+      nextPaymentDue: webhookEvent === "payment_success" ? nextPaymentDue.toISOString() : null,
+      currency: "MIST",
+      test: true // Add test flag to indicate this is test data
+    };
+    
+    // Notify webhooks with test data
+    const webhookResult = await notifyProductWebhooks(productId, webhookData);
+    
+    return res.status(200).send({
+      success: true,
+      message: "Test webhook sent successfully",
+      webhookData,
+      webhookResult
+    });
+  } catch (err) {
+    console.error("Error sending test webhook:", err);
+    return res.status(400).send({
+      error: "Error sending test webhook",
+      message: err.message || String(err)
+    });
+  }
+});
 // The payment processing route
 router.post('/pay', authMiddleware, async (req, res) => {
     
@@ -712,7 +814,8 @@ router.post('/pay', authMiddleware, async (req, res) => {
           receiptId: receipt.id,
           paidOn: new Date(parseInt(paidon)).toISOString(),
           userId: user.id,
-          userWallet: user.wallet
+          userWallet: user.wallet,
+          nextPaymentDue: nextPaymentDue.toISOString() // Include nextPaymentDue in webhook data
         });
         
         // Schedule the next payment
@@ -736,7 +839,8 @@ router.post('/pay', authMiddleware, async (req, res) => {
         receiptId: receipt.id,
         paidOn: new Date(parseInt(paidon)).toISOString(),
         userId: user.id,
-        userWallet: user.wallet
+        userWallet: user.wallet,
+        nextPaymentDue: null // Include nextPaymentDue as null for one-time payments
       });
     }
     
@@ -776,7 +880,7 @@ router.post('/unsubscribe', authMiddleware, async (req, res) => {
       },
     });
 
-    console.log("Transaction result:", transResult.digest);
+    console.log("Unsubscribe digest:", transResult.digest);
     
     const digest = transResult.digest;
     
@@ -809,7 +913,8 @@ router.post('/unsubscribe', authMiddleware, async (req, res) => {
           amount: amount.toString(),
           paidOn: paymentIntentDetails ? paymentIntentDetails.lastPaidOn.toISOString() : new Date().toISOString(), // Use lastPaidOn when available
           userId: user ? user.id : owner,
-          userWallet: user ? user.wallet : owner
+          userWallet: user ? user.wallet : owner,
+          nextPaymentDue: null // Include nextPaymentDue as null for unsubscribe events
         });
       }
       
